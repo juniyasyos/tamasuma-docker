@@ -36,14 +36,30 @@ step() { echo "[entrypoint] $*"; }
 
 step "Environment: APP_ENV=$APP_ENV"
 
+# Composer dirs ke /tmp untuk hindari masalah pada bind mount
+export COMPOSER_CACHE_DIR="/tmp/composer-cache"
+export COMPOSER_HOME="/tmp/composer-home"
+export COMPOSER_TMP_DIR="/tmp"
+
+# Wrapper composer dengan retry sederhana
+composer_retry() {
+  local tries=0 max=3
+  until composer "$@"; do
+    tries=$((tries+1))
+    if [[ $tries -ge $max ]]; then return 1; fi
+    step "composer gagal, retry $tries/$max setelah 2s..."
+    sleep 2
+  done
+}
+
 # 1) Composer install jika vendor belum ada
 if [[ -f composer.json ]] && [[ ! -f vendor/autoload.php ]]; then
   step "Menjalankan composer install (vendor belum ada)"
   mkdir -p vendor && chown -R www:www vendor || true
   if [[ "${APP_ENV}" == "production" ]]; then
-    composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader || true
+    composer_retry install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader || true
   else
-    composer install --prefer-dist --no-interaction --no-progress || true
+    composer_retry install --prefer-dist --no-interaction --no-progress || true
   fi
 else
   step "Lewati composer install (vendor sudah ada atau composer.json tidak ada)"

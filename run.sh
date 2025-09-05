@@ -113,7 +113,7 @@ done
 if ! $COMPOSE_BIN exec -T app test -f vendor/autoload.php; then
   echo "Menjalankan composer install di container..."
   # Pakai dev deps secara default (lebih nyaman untuk lokal)
-  $COMPOSE_BIN exec -T app composer install --prefer-dist --no-interaction --no-progress || true
+  $COMPOSE_BIN exec -T app /bin/sh -lc 'export COMPOSER_CACHE_DIR=/tmp/composer-cache COMPOSER_HOME=/tmp/composer-home COMPOSER_TMP_DIR=/tmp; composer install --prefer-dist --no-interaction --no-progress' || true
 fi
 
 # Siapkan .env di dalam app jika belum ada (entrypoint juga melakukan ini, ini hanya fallback)

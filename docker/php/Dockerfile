@@ -10,7 +10,8 @@ ARG ENABLE_XDEBUG=false         # true|false
 ARG TZ=Asia/Jakarta
 
 RUN apk add --no-cache \
-      tzdata bash git shadow icu-dev oniguruma-dev libzip-dev zlib-dev \
+      tzdata bash git shadow ca-certificates unzip \
+      icu-dev oniguruma-dev libzip-dev zlib-dev \
       libpng-dev libjpeg-turbo-dev freetype-dev \
       libxml2-dev postgresql-dev \
       linux-headers \ 

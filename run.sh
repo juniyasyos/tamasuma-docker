@@ -81,6 +81,12 @@ else
   echo ".env.docker sudah ada — dilewati"
 fi
 
+# Pastikan tidak ada APP_KEY yang meng-override .env aplikasi
+if grep -qE '^APP_KEY=' "$PROJECT_ROOT/.env.docker"; then
+  echo "[3b/6] Menonaktifkan APP_KEY di .env.docker agar tidak override .env aplikasi"
+  sed -i 's/^APP_KEY=.*/# APP_KEY moved to app .env/g' "$PROJECT_ROOT/.env.docker"
+fi
+
 if [[ "$FRESH" == true ]]; then
   echo "[4/6] Fresh start: hapus volumes..."
   $COMPOSE_BIN down -v || true
@@ -142,6 +148,11 @@ $COMPOSE_BIN exec -T app php artisan key:generate --force || true
 $COMPOSE_BIN exec -T app sh -lc 'if ! grep -qE "^APP_KEY=.+$" .env; then KEY=$(php -r "echo \"base64:\".base64_encode(random_bytes(32));"); if grep -qE "^APP_KEY=" .env; then sed -i "s#^APP_KEY=.*#APP_KEY=${KEY}#" .env; else echo "APP_KEY=${KEY}" >> .env; fi; fi'
 $COMPOSE_BIN exec -T app php artisan migrate --force || true
 $COMPOSE_BIN exec -T app php artisan storage:link || true
+$COMPOSE_BIN exec -T app composer run setup || true
+
+# running script npm build frontend
+$COMPOSE_BIN exec -T --rm node npm install || true
+$COMPOSE_BIN exec -T --rm node npm run build || true
 
 # Jika production, cache config ulang
 $COMPOSE_BIN exec -T app sh -lc 'if [ "${APP_ENV:-production}" = "production" ]; then php artisan config:cache || true; fi'

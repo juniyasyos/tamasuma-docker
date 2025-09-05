@@ -20,6 +20,7 @@ services:
       dockerfile: ../../docker/php/Dockerfile  
     container_name: laravel-app
     working_dir: /var/www/html
+    user: root
     volumes:
       - ./site/tamasuma-backend:/var/www/html
       # Pisahkan vendor ke named volume agar tidak berada di bind mount Windows

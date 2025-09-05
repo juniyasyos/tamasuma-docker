@@ -108,8 +108,8 @@ until $COMPOSE_BIN exec -T "$SERVICE_APP" php -v >/dev/null 2>&1; do
   sleep 2
 done
 
-# Pastikan vendor berada di volume dan memiliki permission benar
-$COMPOSE_BIN exec -T "$SERVICE_APP" sh -lc 'mkdir -p vendor && chown -R www:www vendor' || true
+# Pastikan vendor ada (kepemilikan akan ditangani entrypoint saat user=root)
+$COMPOSE_BIN exec -T "$SERVICE_APP" sh -lc 'mkdir -p vendor' || true
 
 # Pastikan vendor terpasang
 if ! $COMPOSE_BIN exec -T "$SERVICE_APP" test -f vendor/autoload.php; then

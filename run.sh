@@ -119,6 +119,9 @@ fi
 # Siapkan .env di dalam app jika belum ada (entrypoint juga melakukan ini, ini hanya fallback)
 $COMPOSE_BIN exec -T app php -r 'file_exists(".env") || copy(".env.example", ".env");' || true
 
+# Pastikan cache konfigurasi bersih total sebelum set key
+$COMPOSE_BIN exec -T app sh -lc 'rm -f bootstrap/cache/config.php bootstrap/cache/services.php || true' || true
+
 # Sinkron DB config ke .env (fallback jika entrypoint belum menyetel)
 $COMPOSE_BIN exec -T app /bin/sh -lc 'set -e; \
   if [ -f .env ]; then \
@@ -131,10 +134,17 @@ $COMPOSE_BIN exec -T app /bin/sh -lc 'set -e; \
     set_kv DB_PASSWORD "${DB_PASSWORD:-${POSTGRES_PASSWORD:-laravel}}"; \
   fi'
 
+# Bersihkan cache agar tidak pakai config lama
+$COMPOSE_BIN exec -T app php artisan optimize:clear || true
+
 # Generate APP_KEY, migrasi database, dan storage link (aman dijalankan berulang)
 $COMPOSE_BIN exec -T app php artisan key:generate --force || true
+$COMPOSE_BIN exec -T app sh -lc 'if ! grep -qE "^APP_KEY=.+$" .env; then KEY=$(php -r "echo \"base64:\".base64_encode(random_bytes(32));"); if grep -qE "^APP_KEY=" .env; then sed -i "s#^APP_KEY=.*#APP_KEY=${KEY}#" .env; else echo "APP_KEY=${KEY}" >> .env; fi; fi'
 $COMPOSE_BIN exec -T app php artisan migrate --force || true
 $COMPOSE_BIN exec -T app php artisan storage:link || true
+
+# Jika production, cache config ulang
+$COMPOSE_BIN exec -T app sh -lc 'if [ "${APP_ENV:-production}" = "production" ]; then php artisan config:cache || true; fi'
 
 echo
 echo "Selesai! Aplikasi siap di: http://localhost:8080"

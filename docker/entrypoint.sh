@@ -36,6 +36,10 @@ step() { echo "[entrypoint] $*"; }
 
 step "Environment: APP_ENV=$APP_ENV"
 
+# Hapus cache Laravel secara paksa (aman meski vendor belum ada)
+rm -f bootstrap/cache/config.php bootstrap/cache/services.php || true
+if [[ -f artisan ]]; then artisan config:clear || true; fi
+
 # Composer dirs ke /tmp untuk hindari masalah pada bind mount
 export COMPOSER_CACHE_DIR="/tmp/composer-cache"
 export COMPOSER_HOME="/tmp/composer-home"
@@ -153,13 +157,27 @@ else
   step "LARAVEL_WAIT_FOR_DB=false — lewati tunggu DB"
 fi
 
-# 5) APP_KEY
-if [[ -f artisan ]]; then
-  if ! grep -qE '^APP_KEY=.+$' .env 2>/dev/null; then
-    step "Generate APP_KEY"
-    artisan key:generate --force || true
+# 5) APP_KEY — pastikan ada, dengan fallback manual jika artisan gagal
+ensure_app_key() {
+  if [[ -f .env ]]; then
+    if ! grep -qE '^APP_KEY=.+$' .env; then
+      step "Generate APP_KEY via artisan"
+      if [[ -f artisan ]] && php -r 'exit(file_exists("vendor/autoload.php")?0:1);'; then
+        artisan key:generate --force || true
+      fi
+    fi
+    if ! grep -qE '^APP_KEY=.+$' .env; then
+      step "Fallback: generate APP_KEY manual"
+      KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')
+      if grep -qE '^APP_KEY=' .env; then
+        sed -i "s#^APP_KEY=.*#APP_KEY=${KEY}#" .env
+      else
+        echo "APP_KEY=${KEY}" >> .env
+      fi
+    fi
   fi
-fi
+}
+ensure_app_key
 
 # 6) Storage link opsional
 if [[ "${LARAVEL_STORAGE_LINK}" == "true" ]] && [[ -f artisan ]]; then

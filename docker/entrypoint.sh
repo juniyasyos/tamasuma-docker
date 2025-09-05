@@ -57,7 +57,7 @@ composer_retry() {
 }
 
 # 1) Composer install jika vendor belum ada
-mkdir -p vendor && chown -R www:www vendor || true
+mkdir -p vendor && chown -R www-data:www-data vendor || true
 if [[ -f composer.json ]] && [[ ! -f vendor/autoload.php ]]; then
   step "Menjalankan composer install (vendor belum ada)"
   if [[ "${APP_ENV}" == "production" ]]; then
@@ -111,8 +111,15 @@ fi
 
 # 3) Pastikan direktori writable
 mkdir -p storage bootstrap/cache || true
-chown -R www:www storage bootstrap/cache || true
+chown -R www-data:www-data storage bootstrap/cache || true
 chmod -R ug+rwX storage bootstrap/cache || true
+
+# Fallback terakhir untuk lingkungan dev (misal bind mount Windows)
+# Jika tidak bisa menulis ke storage/framework/views, longgarkan permission
+if ! ( : > storage/framework/views/.perm_test 2>/dev/null ); then
+  step "Permission storage bermasalah — menerapkan chmod 0777 (dev only)"
+  chmod -R 0777 storage bootstrap/cache || true
+fi
 
 # 4) Tunggu DB opsional
 if [[ "${LARAVEL_WAIT_FOR_DB}" == "true" ]]; then

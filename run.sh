@@ -147,7 +147,7 @@ $COMPOSE_BIN exec -T "$SERVICE_APP" composer run setup || true
 if [[ "$NODE_BUILD" == "true" ]]; then
   echo "[6b/7] Build frontend (npm)…"
   # Gunakan `run --rm` agar tidak butuh service node selalu hidup.
-  if $COMPOSE_BIN ps --services | grep -qx "$SERVICE_NODE"; then
+  if $COMPOSE_BIN config --services | grep -qx "$SERVICE_NODE"; then
     $COMPOSE_BIN run --rm "$SERVICE_NODE" npm ci || $COMPOSE_BIN run --rm "$SERVICE_NODE" npm install
     $COMPOSE_BIN run --rm "$SERVICE_NODE" npm run build
     if [[ "$CLEAN_NODE_MODULES" == "true" ]]; then

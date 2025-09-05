@@ -1,0 +1,55 @@
+services:
+  web:
+    image: caddy:2-alpine
+    container_name: laravel-web
+    ports:
+      - "8080:8080"
+      # - "443:443"   # aktifkan kalau mau TLS lokal (Caddy otomatis)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./site/tamasuma-backend:/var/www/html
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ./site/tamasuma-backend
+      dockerfile: ../../docker/php/Dockerfile  
+    container_name: laravel-app
+    working_dir: /var/www/html
+    volumes:
+      - ./site/tamasuma-backend:/var/www/html
+    env_file:
+      - .env.docker
+    environment:
+      PHP_OPCACHE_VALIDATE_TIMESTAMPS: "1"
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: laravel-db
+    env_file:
+      - .env.docker
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-${DB_DATABASE:-laravel}}
+      POSTGRES_USER: ${POSTGRES_USER:-${DB_USERNAME:-laravel}}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-${DB_PASSWORD:-laravel}}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  caddy_data:
+  caddy_config:
+  pg_data:

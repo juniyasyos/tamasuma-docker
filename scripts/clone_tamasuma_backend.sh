@@ -22,10 +22,10 @@ REPO_PATH="juniyasyos/tamasuma-backend"
 HTTPS_URL="https://github.com/${REPO_PATH}.git"
 SSH_URL="git@github.com:${REPO_PATH}.git"
 
-TARGET_PARENT="${HOME}/site"
+TARGET_PARENT="${HOME}/tamasuma-docker/tamasuma/site"
 REPO_NAME="tamasuma-backend"
 CLONE_DIR="${TARGET_PARENT}/${REPO_NAME}"
-BRANCH=""
+BRANCH="development"
 SHALLOW=false
 USE_SSH=false
 HARD_UPDATE=false

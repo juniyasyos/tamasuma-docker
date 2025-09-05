@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# run.sh — sekali jalan untuk setup dan jalanin stack
-#
-# - Cek dependency (docker, docker compose, git)
-# - Clone/update backend ke ./site/tamasuma-backend
-# - Buat .env.docker kalau belum ada
-# - docker compose up -d --build
-# - Inisialisasi Laravel (key, migrate, storage link)
-#
-# Opsi:
-#   --rebuild    Force rebuild images
-#   --fresh      Hapus volumes (data DB) sebelum up
-#   -h|--help    Tampilkan bantuan
+# run.sh — sekali jalan untuk setup & jalanin stack
 
-PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
-COMPOSE_BIN="docker compose"
+# ---- Konfigurasi yang bisa dioverride via ENV ----
+COMPOSE_BIN="${COMPOSE_BIN:-docker compose}"
+SERVICE_APP="${SERVICE_APP:-app}"      # contoh: laravel-app
+SERVICE_WEB="${SERVICE_WEB:-web}"      # contoh: laravel-web
+SERVICE_DB="${SERVICE_DB:-db}"         # contoh: laravel-db
+SERVICE_NODE="${SERVICE_NODE:-node}"   # contoh: tamasuma-node-1 (nama service, bukan container)
+NODE_BUILD="${NODE_BUILD:-true}"       # set false untuk skip npm build
+CLEAN_NODE_MODULES="${CLEAN_NODE_MODULES:-false}" # true untuk rm -rf node_modules setelah build
+# --------------------------------------------------
+
 REBUILD=false
 FRESH=false
 
@@ -23,18 +20,17 @@ usage() {
   cat <<EOF
 Pemakaian: ./run.sh [opsi]
 
-Menjalankan seluruh stack sekali jalan.
-
 Opsi:
   --rebuild   Rebuild image sebelum up
-  --fresh     Hapus volumes (data DB) sebelum up
-  -h, --help  Tampilkan bantuan ini
+  --fresh     down -v sebelum up (hapus data DB)
+  -h, --help  Bantuan
+Variabel ENV penting:
+  COMPOSE_BIN, SERVICE_APP, SERVICE_WEB, SERVICE_DB, SERVICE_NODE,
+  NODE_BUILD=[true|false], CLEAN_NODE_MODULES=[true|false]
 EOF
 }
 
-require() {
-  command -v "$1" >/dev/null 2>&1 || { echo "Error: '$1' tidak ditemukan." >&2; exit 1; }
-}
+require() { command -v "$1" >/dev/null 2>&1 || { echo "Error: '$1' tidak ditemukan." >&2; exit 1; }; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -45,32 +41,29 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "[1/6] Cek dependency..."
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+echo "[1/7] Cek dependency…"
 require docker
 require git
-# Pastikan docker compose tersedia (plugin bawaan docker)
 if ! docker compose version >/dev/null 2>&1; then
-  echo "Error: 'docker compose' tidak tersedia. Install Docker Desktop/Engine terbaru." >&2
-  exit 1
+  echo "Error: 'docker compose' tidak tersedia." >&2; exit 1
 fi
 
-echo "[2/6] Clone/update backend ke ./site/tamasuma-backend..."
+echo "[2/7] Clone/update backend ke ./site/tamasuma-backend…"
 mkdir -p "$PROJECT_ROOT/site"
 chmod +x "$PROJECT_ROOT/scripts/clone_tamasuma_backend.sh"
 "$PROJECT_ROOT/scripts/clone_tamasuma_backend.sh" --dir "$PROJECT_ROOT/site"
 
-echo "[3/6] Siapkan .env.docker..."
+echo "[3/7] Siapkan .env.docker…"
 if [[ ! -f "$PROJECT_ROOT/.env.docker" ]]; then
   if [[ -f "$PROJECT_ROOT/.env.docker.example" ]]; then
     cp "$PROJECT_ROOT/.env.docker.example" "$PROJECT_ROOT/.env.docker"
   else
     cat > "$PROJECT_ROOT/.env.docker" <<'ENVEOF'
-# Konfigurasi default untuk docker-compose
 POSTGRES_DB=laravel
 POSTGRES_USER=laravel
 POSTGRES_PASSWORD=laravel
-
-# (opsional) nilai mirror untuk konsistensi
 DB_DATABASE=laravel
 DB_USERNAME=laravel
 DB_PASSWORD=laravel
@@ -81,82 +74,92 @@ else
   echo ".env.docker sudah ada — dilewati"
 fi
 
-# Pastikan tidak ada APP_KEY yang meng-override .env aplikasi
+# Hindari override APP_KEY dari environment compose
 if grep -qE '^APP_KEY=' "$PROJECT_ROOT/.env.docker"; then
-  echo "[3b/6] Menonaktifkan APP_KEY di .env.docker agar tidak override .env aplikasi"
-  sed -i 's/^APP_KEY=.*/# APP_KEY moved to app .env/g' "$PROJECT_ROOT/.env.docker"
+  echo "[3b/7] Menonaktifkan APP_KEY di .env.docker (hindari override)"
+  # sed GNU & BSD kompatibel
+  tmp="$(mktemp)"; awk 'BEGIN{done=0} {if(!done && $0 ~ /^APP_KEY=/){print "# APP_KEY moved to app .env"; done=1} else print $0}' "$PROJECT_ROOT/.env.docker" > "$tmp" && mv "$tmp" "$PROJECT_ROOT/.env.docker"
 fi
 
 if [[ "$FRESH" == true ]]; then
-  echo "[4/6] Fresh start: hapus volumes..."
+  echo "[4/7] Fresh start: docker compose down -v…"
   $COMPOSE_BIN down -v || true
 fi
 
-echo "[4.5/6] Sinkronkan entrypoint ke build context..."
-# Dockerfile mengharapkan 'entrypoint.sh' di dalam build context (site/tamasuma-backend)
+echo "[4.5/7] Sinkronkan entrypoint ke build context (jika ada)…"
 if [[ -f "$PROJECT_ROOT/docker/entrypoint.sh" ]]; then
   cp "$PROJECT_ROOT/docker/entrypoint.sh" "$PROJECT_ROOT/site/tamasuma-backend/entrypoint.sh"
 else
-  echo "Warning: docker/entrypoint.sh tidak ditemukan di root; pastikan tersedia." >&2
+  echo "Warning: docker/entrypoint.sh tidak ditemukan; lewati."
 fi
 
-echo "[5/6] Jalankan docker compose..."
-UP_ARGS=(up -d)
+echo "[5/7] Build & up…"
 if [[ "$REBUILD" == true ]]; then
-  UP_ARGS=(--progress=plain build)
-  $COMPOSE_BIN "${UP_ARGS[@]}"
-  UP_ARGS=(up -d)
+  $COMPOSE_BIN build --progress=plain
 fi
-$COMPOSE_BIN "${UP_ARGS[@]}"
+$COMPOSE_BIN up -d
 
-echo "[6/6] Inisialisasi aplikasi Laravel di container..."
-# Tunggu kontainer app siap menerima perintah ringan
-tries=0; until $COMPOSE_BIN exec -T app php -v >/dev/null 2>&1; do
-  tries=$((tries+1)); if [[ $tries -gt 30 ]]; then echo "Timeout menunggu container app" >&2; exit 1; fi; sleep 2;
+echo "[6/7] Inisialisasi Laravel…"
+# Tunggu service APP siap
+echo "  - Menunggu service '$SERVICE_APP' siap…"
+tries=0
+until $COMPOSE_BIN exec -T "$SERVICE_APP" php -v >/dev/null 2>&1; do
+  tries=$((tries+1)); [[ $tries -gt 30 ]] && { echo "Timeout menunggu '$SERVICE_APP'"; exit 1; }
+  sleep 2
 done
 
-# Pastikan composer install selesai (vendor/autoload.php ada)
-if ! $COMPOSE_BIN exec -T app test -f vendor/autoload.php; then
-  echo "Menjalankan composer install di container..."
-  # Pakai dev deps secara default (lebih nyaman untuk lokal)
-  $COMPOSE_BIN exec -T app /bin/sh -lc 'export COMPOSER_CACHE_DIR=/tmp/composer-cache COMPOSER_HOME=/tmp/composer-home COMPOSER_TMP_DIR=/tmp; composer install --prefer-dist --no-interaction --no-progress' || true
+# Pastikan vendor terpasang
+if ! $COMPOSE_BIN exec -T "$SERVICE_APP" test -f vendor/autoload.php; then
+  echo "  - composer install…"
+  $COMPOSE_BIN exec -T "$SERVICE_APP" /bin/sh -lc 'export COMPOSER_CACHE_DIR=/tmp/composer-cache COMPOSER_HOME=/tmp/composer-home COMPOSER_TMP_DIR=/tmp; composer install --prefer-dist --no-interaction --no-progress' || true
 fi
 
-# Siapkan .env di dalam app jika belum ada (entrypoint juga melakukan ini, ini hanya fallback)
-$COMPOSE_BIN exec -T app php -r 'file_exists(".env") || copy(".env.example", ".env");' || true
+# Pastikan .env ada
+$COMPOSE_BIN exec -T "$SERVICE_APP" php -r 'file_exists(".env") || copy(".env.example", ".env");' || true
 
-# Pastikan cache konfigurasi bersih total sebelum set key
-$COMPOSE_BIN exec -T app sh -lc 'rm -f bootstrap/cache/config.php bootstrap/cache/services.php || true' || true
+# Bersih cache config (hindari MissingAppKey akibat cache lama)
+$COMPOSE_BIN exec -T "$SERVICE_APP" sh -lc 'rm -f bootstrap/cache/config.php bootstrap/cache/services.php || true'
+$COMPOSE_BIN exec -T "$SERVICE_APP" php artisan optimize:clear || true
 
-# Sinkron DB config ke .env (fallback jika entrypoint belum menyetel)
-$COMPOSE_BIN exec -T app /bin/sh -lc 'set -e; \
-  if [ -f .env ]; then \
-    set_kv() { key="$1"; val="$2"; if grep -qE "^${key}=.*$" .env; then sed -i "s#^${key}=.*#${key}=${val}#" .env; else echo "${key}=${val}" >> .env; fi; }; \
-    set_kv DB_CONNECTION pgsql; \
-    set_kv DB_HOST db; \
-    set_kv DB_PORT 5432; \
-    set_kv DB_DATABASE "${DB_DATABASE:-${POSTGRES_DB:-laravel}}"; \
-    set_kv DB_USERNAME "${DB_USERNAME:-${POSTGRES_USER:-laravel}}"; \
-    set_kv DB_PASSWORD "${DB_PASSWORD:-${POSTGRES_PASSWORD:-laravel}}"; \
-  fi'
+# Sinkron DB config
+$COMPOSE_BIN exec -T "$SERVICE_APP" /bin/sh -lc 'set -e; \
+  set_kv() { k="$1"; v="$2"; if grep -qE "^${k}=.*$" .env; then sed -i "s#^${k}=.*#${k}=${v}#" .env; else echo "${k}=${v}" >> .env; fi; }; \
+  set_kv DB_CONNECTION pgsql; \
+  set_kv DB_HOST '"$SERVICE_DB"'; \
+  set_kv DB_PORT 5432; \
+  set_kv DB_DATABASE "${DB_DATABASE:-${POSTGRES_DB:-laravel}}"; \
+  set_kv DB_USERNAME "${DB_USERNAME:-${POSTGRES_USER:-laravel}}"; \
+  set_kv DB_PASSWORD "${DB_PASSWORD:-${POSTGRES_PASSWORD:-laravel}}"; \
+'
 
-# Bersihkan cache agar tidak pakai config lama
-$COMPOSE_BIN exec -T app php artisan optimize:clear || true
+# APP_KEY + migrasi + storage link
+$COMPOSE_BIN exec -T "$SERVICE_APP" php artisan key:generate --force || true
+$COMPOSE_BIN exec -T "$SERVICE_APP" php -r 'if(!preg_match("/^APP_KEY=.+$/m", file_get_contents(".env"))){$k="base64:".base64_encode(random_bytes(32)); $e=file_get_contents(".env"); if(preg_match("/^APP_KEY=.*$/m",$e)){$e=preg_replace("/^APP_KEY=.*$/m","APP_KEY=".$k,$e);}else{$e.="\nAPP_KEY=".$k."\n";} file_put_contents(".env",$e);}'
 
-# Generate APP_KEY, migrasi database, dan storage link (aman dijalankan berulang)
-$COMPOSE_BIN exec -T app php artisan key:generate --force || true
-$COMPOSE_BIN exec -T app sh -lc 'if ! grep -qE "^APP_KEY=.+$" .env; then KEY=$(php -r "echo \"base64:\".base64_encode(random_bytes(32));"); if grep -qE "^APP_KEY=" .env; then sed -i "s#^APP_KEY=.*#APP_KEY=${KEY}#" .env; else echo "APP_KEY=${KEY}" >> .env; fi; fi'
-$COMPOSE_BIN exec -T app php artisan migrate --force || true
-$COMPOSE_BIN exec -T app php artisan storage:link || true
-$COMPOSE_BIN exec -T app composer run setup || true
+$COMPOSE_BIN exec -T "$SERVICE_APP" php artisan migrate --force || true
+$COMPOSE_BIN exec -T "$SERVICE_APP" php artisan storage:link || true
+$COMPOSE_BIN exec -T "$SERVICE_APP" composer run setup || true
 
-# running script npm build frontend
-$COMPOSE_BIN exec -T --rm node npm install || true
-$COMPOSE_BIN exec -T --rm node npm run build || true
+# ---- Bagian Node/npm (sekali jalan) ----
+if [[ "$NODE_BUILD" == "true" ]]; then
+  echo "[6b/7] Build frontend (npm)…"
+  # Gunakan `run --rm` agar tidak butuh service node selalu hidup.
+  if $COMPOSE_BIN ps --services | grep -qx "$SERVICE_NODE"; then
+    $COMPOSE_BIN run --rm "$SERVICE_NODE" npm ci || $COMPOSE_BIN run --rm "$SERVICE_NODE" npm install
+    $COMPOSE_BIN run --rm "$SERVICE_NODE" npm run build
+    if [[ "$CLEAN_NODE_MODULES" == "true" ]]; then
+      $COMPOSE_BIN run --rm "$SERVICE_NODE" /bin/sh -lc 'rm -rf node_modules'
+    fi
+  else
+    echo "  - Warning: service '$SERVICE_NODE' tidak didefinisikan di docker-compose; lewati build frontend."
+  fi
+else
+  echo "[6b/7] Skip build frontend (NODE_BUILD=false)"
+fi
 
-# Jika production, cache config ulang
-$COMPOSE_BIN exec -T app sh -lc 'if [ "${APP_ENV:-production}" = "production" ]; then php artisan config:cache || true; fi'
+# Cache config untuk production
+$COMPOSE_BIN exec -T "$SERVICE_APP" sh -lc 'if [ "${APP_ENV:-production}" = "production" ]; then php artisan config:cache || true; fi'
 
 echo
-echo "Selesai! Aplikasi siap di: http://localhost:8080"
-echo "Kontainer: web (Caddy), app (PHP-FPM), db (Postgres)"
+echo "[7/7] Selesai! Aplikasi siap di: http://localhost:8080"
+echo "Kontainer: $SERVICE_WEB (web), $SERVICE_APP (php-fpm), $SERVICE_DB (db)$( [[ "$NODE_BUILD" == "true" ]] && echo ", $SERVICE_NODE (npm run)")"

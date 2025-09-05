@@ -53,7 +53,7 @@ services:
     image: node:20
     working_dir: /var/www/html
     volumes:
-      - .:/var/www/html
+      - ./site/tamasuma-backend:/var/www/html
 
 volumes:
   caddy_data:

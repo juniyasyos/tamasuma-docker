@@ -136,7 +136,9 @@ EXPOSE 9000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD php -r "exit(extension_loaded('pdo_pgsql')?0:1);"
 
 # Runtime bootstrap script to auto-prepare the app
-COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+# Note: this expects `entrypoint.sh` to exist inside the build context
+# (i.e., inside `./site/tamasuma-backend`). Our root-level run.sh copies it before build.
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 USER root
 RUN chmod +x /usr/local/bin/entrypoint.sh && chown www:www /usr/local/bin/entrypoint.sh
 USER www

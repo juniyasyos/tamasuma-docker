@@ -86,6 +86,14 @@ if [[ "$FRESH" == true ]]; then
   $COMPOSE_BIN down -v || true
 fi
 
+echo "[4.5/6] Sinkronkan entrypoint ke build context..."
+# Dockerfile mengharapkan 'entrypoint.sh' di dalam build context (site/tamasuma-backend)
+if [[ -f "$PROJECT_ROOT/docker/entrypoint.sh" ]]; then
+  cp "$PROJECT_ROOT/docker/entrypoint.sh" "$PROJECT_ROOT/site/tamasuma-backend/entrypoint.sh"
+else
+  echo "Warning: docker/entrypoint.sh tidak ditemukan di root; pastikan tersedia." >&2
+fi
+
 echo "[5/6] Jalankan docker compose..."
 UP_ARGS=(up -d)
 if [[ "$REBUILD" == true ]]; then
@@ -101,10 +109,29 @@ tries=0; until $COMPOSE_BIN exec -T app php -v >/dev/null 2>&1; do
   tries=$((tries+1)); if [[ $tries -gt 30 ]]; then echo "Timeout menunggu container app" >&2; exit 1; fi; sleep 2;
 done
 
-# Siapkan .env di dalam app jika belum ada
+# Pastikan composer install selesai (vendor/autoload.php ada)
+if ! $COMPOSE_BIN exec -T app test -f vendor/autoload.php; then
+  echo "Menjalankan composer install di container..."
+  # Pakai dev deps secara default (lebih nyaman untuk lokal)
+  $COMPOSE_BIN exec -T app composer install --prefer-dist --no-interaction --no-progress || true
+fi
+
+# Siapkan .env di dalam app jika belum ada (entrypoint juga melakukan ini, ini hanya fallback)
 $COMPOSE_BIN exec -T app php -r 'file_exists(".env") || copy(".env.example", ".env");' || true
 
-# Generate APP_KEY, migrasi database, dan storage link
+# Sinkron DB config ke .env (fallback jika entrypoint belum menyetel)
+$COMPOSE_BIN exec -T app /bin/sh -lc 'set -e; \
+  if [ -f .env ]; then \
+    set_kv() { key="$1"; val="$2"; if grep -qE "^${key}=.*$" .env; then sed -i "s#^${key}=.*#${key}=${val}#" .env; else echo "${key}=${val}" >> .env; fi; }; \
+    set_kv DB_CONNECTION pgsql; \
+    set_kv DB_HOST db; \
+    set_kv DB_PORT 5432; \
+    set_kv DB_DATABASE "${DB_DATABASE:-${POSTGRES_DB:-laravel}}"; \
+    set_kv DB_USERNAME "${DB_USERNAME:-${POSTGRES_USER:-laravel}}"; \
+    set_kv DB_PASSWORD "${DB_PASSWORD:-${POSTGRES_PASSWORD:-laravel}}"; \
+  fi'
+
+# Generate APP_KEY, migrasi database, dan storage link (aman dijalankan berulang)
 $COMPOSE_BIN exec -T app php artisan key:generate --force || true
 $COMPOSE_BIN exec -T app php artisan migrate --force || true
 $COMPOSE_BIN exec -T app php artisan storage:link || true
@@ -112,4 +139,3 @@ $COMPOSE_BIN exec -T app php artisan storage:link || true
 echo
 echo "Selesai! Aplikasi siap di: http://localhost:8080"
 echo "Kontainer: web (Caddy), app (PHP-FPM), db (Postgres)"
-

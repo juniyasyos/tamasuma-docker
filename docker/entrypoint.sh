@@ -39,6 +39,7 @@ step "Environment: APP_ENV=$APP_ENV"
 # 1) Composer install jika vendor belum ada
 if [[ -f composer.json ]] && [[ ! -f vendor/autoload.php ]]; then
   step "Menjalankan composer install (vendor belum ada)"
+  mkdir -p vendor && chown -R www:www vendor || true
   if [[ "${APP_ENV}" == "production" ]]; then
     composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader || true
   else
@@ -56,6 +57,36 @@ elif [[ -f .env.example ]]; then
   cp .env.example .env || true
 else
   step "Lewati pembuatan .env (tidak ada .env maupun .env.example)"
+fi
+
+# 2b) Sinkronkan pengaturan DB ke .env bila memungkinkan
+set_env() {
+  local key="$1"; shift
+  local val="$1"; shift || true
+  [[ -f .env ]] || return 0
+  if grep -qE "^${key}=.*$" .env; then
+    sed -i "s#^${key}=.*#${key}=${val}#" .env
+  else
+    echo "${key}=${val}" >> .env
+  fi
+}
+
+if [[ -f .env ]]; then
+  # Derive DB values from envs provided by compose
+  DB_CONNECTION_DEFAULT="${DB_CONNECTION:-pgsql}"
+  DB_HOST_DEFAULT="${DB_HOST:-db}"
+  DB_PORT_DEFAULT="${DB_PORT:-5432}"
+  DB_NAME_DEFAULT="${DB_DATABASE:-${POSTGRES_DB:-laravel}}"
+  DB_USER_DEFAULT="${DB_USERNAME:-${POSTGRES_USER:-laravel}}"
+  DB_PASS_DEFAULT="${DB_PASSWORD:-${POSTGRES_PASSWORD:-laravel}}"
+
+  set_env DB_CONNECTION "$DB_CONNECTION_DEFAULT"
+  set_env DB_HOST "$DB_HOST_DEFAULT"
+  set_env DB_PORT "$DB_PORT_DEFAULT"
+  set_env DB_DATABASE "$DB_NAME_DEFAULT"
+  set_env DB_USERNAME "$DB_USER_DEFAULT"
+  set_env DB_PASSWORD "$DB_PASS_DEFAULT"
+  step "Sinkron DB config ke .env (connection=$DB_CONNECTION_DEFAULT host=$DB_HOST_DEFAULT)"
 fi
 
 # 3) Pastikan direktori writable
@@ -145,4 +176,3 @@ fi
 
 step "Bootstrap selesai; menjalankan proses utama: $*"
 exec "$@"
-

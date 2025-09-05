@@ -53,10 +53,14 @@ services:
       retries: 5
   
   node:
-    image: node:20
+    image: node:20-alpine
+    container_name: laravel-node
     working_dir: /var/www/html
+    user: "1000:1000"
     volumes:
       - ./site/tamasuma-backend:/var/www/html
+    command: tail -f /dev/null
+    restart: unless-stopped
 
 volumes:
   caddy_data:

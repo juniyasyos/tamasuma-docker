@@ -69,7 +69,7 @@ normalize_remote() {
   printf '%s\n' "$url"
 }
 
-while [[ $# -gt 0 ]];n+do
+while [[ $# -gt 0 ]]; do
   case "$1" in
     --dir)
       [[ $# -ge 2 ]] || { echo "--dir requires a value" >&2; exit 2; }
@@ -163,4 +163,3 @@ if git rev-parse --verify -q HEAD >/dev/null; then
 fi
 
 echo "Done. Location: $CLONE_DIR"
-

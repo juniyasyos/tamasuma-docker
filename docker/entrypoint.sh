@@ -207,6 +207,14 @@ if [[ -f artisan ]]; then
     artisan route:clear || true
     artisan view:clear || true
   fi
+
+  # Setelah operasi cache/artisan di atas, pastikan file di storage & cache
+  # tidak tertinggal dengan kepemilikan root (bisa terjadi bila container
+  # berjalan sebagai root). Normalkan kembali agar proses PHP-FPM (www-data)
+  # dapat menulis ulang view/config tanpa error permission.
+  step "Normalize ownership & perms: storage, bootstrap/cache"
+  chown -R www-data:www-data storage bootstrap/cache || true
+  chmod -R ug+rwX storage bootstrap/cache || true
 fi
 
 # 8) Migrasi opsional

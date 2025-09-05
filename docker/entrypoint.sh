@@ -57,9 +57,9 @@ composer_retry() {
 }
 
 # 1) Composer install jika vendor belum ada
+mkdir -p vendor && chown -R www:www vendor || true
 if [[ -f composer.json ]] && [[ ! -f vendor/autoload.php ]]; then
   step "Menjalankan composer install (vendor belum ada)"
-  mkdir -p vendor && chown -R www:www vendor || true
   if [[ "${APP_ENV}" == "production" ]]; then
     composer_retry install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader || true
   else

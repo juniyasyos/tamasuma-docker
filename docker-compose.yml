@@ -22,6 +22,8 @@ services:
     working_dir: /var/www/html
     volumes:
       - ./site/tamasuma-backend:/var/www/html
+      # Pisahkan vendor ke named volume agar tidak berada di bind mount Windows
+      - vendor_data:/var/www/html/vendor
     env_file:
       - .env.docker
     environment:
@@ -59,3 +61,4 @@ volumes:
   caddy_data:
   caddy_config:
   pg_data:
+  vendor_data:

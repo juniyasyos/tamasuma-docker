@@ -1,0 +1,13 @@
+services:
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: ${STACK_NAME:-laravel}-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-password}
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      - db
+    restart: unless-stopped
+

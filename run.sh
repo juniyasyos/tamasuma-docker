@@ -77,7 +77,7 @@ if [[ -f "$PROJECT_ROOT/compose/base.yml" ]]; then
   BASE_COMPOSE_FILE="$PROJECT_ROOT/compose/base.yml"
 fi
 
-# Dukungan env COMPOSE_FILES atau STACK_PARTS (dipisah dengan koma/kolon/spasi)
+# Dukungan env COMPOSE_FILES/STACK_PARTS (dipisah koma/kolon/spasi) + selector WEB_IMPL/DB_IMPL/WITH_PARTS
 _extras_raw="${COMPOSE_FILES:-${STACK_PARTS:-}}"
 IFS=',' read -r -a _extras_csv <<< "${_extras_raw}"
 # juga pecah dengan spasi/kolon
@@ -88,15 +88,61 @@ for item in "${_extras_csv[@]}"; do
   done
 done
 
+# Tambahan via selector ergonomis
+WEB_IMPL="${WEB_IMPL:-caddy}"      # caddy|nginx
+DB_IMPL="${DB_IMPL:-postgres}"     # postgres|mariadb
+WITH_PARTS_RAW="${WITH_PARTS:-}"   # csv/space/colon
+
+if [[ "$WEB_IMPL" == "nginx" ]]; then
+  _extras+=("compose/services/web.nginx.yml")
+elif [[ "$WEB_IMPL" != "caddy" ]]; then
+  echo "  - Warning: WEB_IMPL='$WEB_IMPL' tidak dikenal, gunakan 'caddy' atau 'nginx'" >&2
+fi
+
+if [[ "$DB_IMPL" == "mariadb" ]]; then
+  _extras+=("compose/services/db.mariadb.yml")
+elif [[ "$DB_IMPL" != "postgres" ]]; then
+  echo "  - Warning: DB_IMPL='$DB_IMPL' tidak dikenal, gunakan 'postgres' atau 'mariadb'" >&2
+fi
+
+if [[ -n "$WITH_PARTS_RAW" ]]; then
+  IFS=',' read -r -a with_csv <<< "$WITH_PARTS_RAW"
+  tokens=()
+  for item in "${with_csv[@]}"; do
+    for token in ${item//:/ } ; do
+      [[ -n "$token" ]] && tokens+=("$token")
+    done
+  done
+  for p in "${tokens[@]}"; do
+    case "$p" in
+      redis) _extras+=("compose/services/cache.redis.yml") ;;
+      mailpit) _extras+=("compose/services/mail.mailpit.yml") ;;
+      pgadmin) _extras+=("compose/services/admin.pgadmin.yml") ;;
+      phpmyadmin) _extras+=("compose/services/admin.phpmyadmin.yml") ;;
+      worker) _extras+=("compose/services/worker.queue.yml") ;;
+      node) _extras+=("compose/services/node.dev.yml") ;;
+      *) echo "  - Warning: WITH_PARTS entry tidak dikenal: $p" >&2 ;;
+    esac
+  done
+fi
+
+# Bangun argumen -f dengan deduplikasi dan validasi keberadaan file
+declare -A _seen
 COMPOSE_FILE_ARGS=(-f "$BASE_COMPOSE_FILE")
 for f in "${_extras[@]}"; do
   # path relatif terhadap project root
+  path=""
   if [[ -f "$PROJECT_ROOT/$f" ]]; then
-    COMPOSE_FILE_ARGS+=( -f "$PROJECT_ROOT/$f" )
+    path="$PROJECT_ROOT/$f"
   elif [[ -f "$f" ]]; then
-    COMPOSE_FILE_ARGS+=( -f "$f" )
+    path="$f"
   else
     echo "  - Warning: compose part tidak ditemukan: $f" >&2
+    continue
+  fi
+  if [[ -z "${_seen[$path]:-}" ]]; then
+    COMPOSE_FILE_ARGS+=( -f "$path" )
+    _seen[$path]=1
   fi
 done
 echo "  - Compose files: ${COMPOSE_FILE_ARGS[*]}"

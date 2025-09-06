@@ -74,13 +74,27 @@ if [[ -z "${COMPOSE_PROJECT_NAME:-}" && -n "${STACK_NAME:-}" ]]; then
 fi
 
 # Wrapper docker compose dengan --env-file
-compose() { "$COMPOSE_BIN" "${COMPOSE_ARGS[@]}" "$@"; }
+# Catatan: sengaja tidak mengutip $COMPOSE_BIN agar "docker compose"
+# terpecah menjadi dua argumen (bash word-splitting) dan tidak dianggap
+# sebagai satu nama perintah.
+compose() { $COMPOSE_BIN "${COMPOSE_ARGS[@]}" "$@"; }
 
 echo "[1/7] Cek dependency…"
 require docker
 require git
-if ! docker compose version >/dev/null 2>&1; then
-  echo "Error: 'docker compose' tidak tersedia." >&2; exit 1
+# Deteksi Compose v2/v1 dan set COMPOSE_BIN otomatis bila belum di-override
+if [[ -z "${COMPOSE_BIN_OVERRIDE_DETECTED:-}" ]]; then
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE_BIN=${COMPOSE_BIN:-"docker compose"}
+  elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_BIN=${COMPOSE_BIN:-docker-compose}
+    echo "  - Info: memakai legacy 'docker-compose' (disarankan upgrade ke Docker Compose v2)"
+  else
+    echo "Error: Docker Compose tidak ditemukan (coba instal plugin 'docker compose' atau binary 'docker-compose')." >&2
+    echo "  - Linux: apt install docker-compose-plugin (atau docker-compose)" >&2
+    echo "  - Docker Desktop: pastikan Compose V2 aktif" >&2
+    exit 1
+  fi
 fi
 
 if [[ "$SKIP_CLONE" == "true" ]]; then

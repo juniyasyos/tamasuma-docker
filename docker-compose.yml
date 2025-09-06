@@ -1,13 +1,13 @@
 services:
   web:
     image: caddy:2-alpine
-    container_name: laravel-web
+    container_name: ${STACK_NAME:-laravel}-web
     ports:
-      - "8080:8080"
+      - "${WEB_HTTP_PORT:-8080}:8080"
       # - "443:443"   # aktifkan kalau mau TLS lokal (Caddy otomatis)
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./site/tamasuma-backend:/var/www/html
+      - ./site/${APP_DIR:-tamasuma-backend}:/var/www/html
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
@@ -16,13 +16,13 @@ services:
 
   app:
     build:
-      context: ./site/tamasuma-backend
-      dockerfile: ../../docker/php/Dockerfile  
-    container_name: laravel-app
+      context: ./site/${APP_DIR:-tamasuma-backend}
+      dockerfile: ../../docker/php/Dockerfile
+    container_name: ${STACK_NAME:-laravel}-app
     working_dir: /var/www/html
     user: root
     volumes:
-      - ./site/tamasuma-backend:/var/www/html
+      - ./site/${APP_DIR:-tamasuma-backend}:/var/www/html
       # Pisahkan vendor ke named volume agar tidak berada di bind mount Windows
       - vendor_data:/var/www/html/vendor
     env_file:
@@ -35,7 +35,7 @@ services:
 
   db:
     image: postgres:16-alpine
-    container_name: laravel-db
+    container_name: ${STACK_NAME:-laravel}-db
     env_file:
       - .env.docker
     environment:
@@ -45,20 +45,20 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
-  
+
   node:
     image: node:20-alpine
-    container_name: laravel-node
+    container_name: ${STACK_NAME:-laravel}-node
     working_dir: /var/www/html
     user: "1000:1000"
     volumes:
-      - ./site/tamasuma-backend:/var/www/html
+      - ./site/${APP_DIR:-tamasuma-backend}:/var/www/html
     command: tail -f /dev/null
     restart: unless-stopped
 

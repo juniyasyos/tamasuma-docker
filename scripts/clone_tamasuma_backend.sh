@@ -1,32 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# clone_tamasuma_backend.sh
+# clone_tamasuma_backend.sh (generic clone helper)
 #
-# Idempotent, safe clone/update script for:
-#   https://github.com/juniyasyos/tamasuma-backend
+# Idempotent, safe clone/update script. Defaults are tuned for the
+# Tamasuma Kaido starterkit but can be overridden to handle any repo.
 #
 # Defaults:
-#   - Clones into "$HOME/tamasuma-docker/tamasuma/site/tamasuma-backend" by default
-#   - Uses HTTPS by default; `--ssh` switches to SSH
+#   - Target parent dir: "$HOME/tamasuma-docker/tamasuma/site"
+#   - Repo: juniyasyos/tamasuma-backend (override with --repo or env APP_REPO/APP_REPO_URL)
+#   - Name: repo basename (override with --name or env APP_DIR)
+#   - HTTPS by default; `--ssh` or env APP_REPO_SSH=true switches to SSH
 #   - Optional `--branch <name>` and `--shallow`
 #   - Safe update: refuses to modify dirty working tree unless `--hard-update`
 #
 # Usage examples:
 #   scripts/clone_tamasuma_backend.sh
-#   scripts/clone_tamasuma_backend.sh --dir /var/www/site
+#   scripts/clone_tamasuma_backend.sh --dir /var/www/site --repo org/project --name app-backend
 #   scripts/clone_tamasuma_backend.sh --ssh --branch main --shallow
 #   scripts/clone_tamasuma_backend.sh --hard-update
 
-REPO_PATH="juniyasyos/tamasuma-backend"
-HTTPS_URL="https://github.com/${REPO_PATH}.git"
-SSH_URL="git@github.com:${REPO_PATH}.git"
+REPO_PATH_DEFAULT="juniyasyos/tamasuma-backend"
+REPO_PATH="${APP_REPO:-${APP_REPO_URL:-$REPO_PATH_DEFAULT}}"
+HTTPS_URL=""
+SSH_URL=""
 
 TARGET_PARENT="${HOME}/tamasuma-docker/tamasuma/site"
-REPO_NAME="tamasuma-backend"
-BRANCH="development"
+REPO_NAME="${APP_DIR:-}"
+BRANCH="${APP_REPO_BRANCH:-development}"
 SHALLOW=false
-USE_SSH=false
+USE_SSH="${APP_REPO_SSH:-false}"
 HARD_UPDATE=false
 
 usage() {
@@ -36,6 +39,8 @@ Clone or update ${REPO_PATH} into a local directory.
 Options:
   --dir <path>        Parent directory (default: ${HOME}/tamasuma-docker/tamasuma/site)
   --branch <name>     Checkout and track a specific branch
+  --repo <url|path>   Git repo URL or owner/repo (default: ${REPO_PATH_DEFAULT})
+  --name <dir>        Target directory name under parent (default: repo basename)
   --shallow           Use shallow clone (depth=1)
   --ssh               Use SSH remote instead of HTTPS
   --hard-update       If repo exists and dirty, reset hard to update
@@ -73,6 +78,12 @@ while [[ $# -gt 0 ]]; do
     --dir)
       [[ $# -ge 2 ]] || { echo "--dir requires a value" >&2; exit 2; }
       TARGET_PARENT="$2"; shift 2 ;;
+    --repo)
+      [[ $# -ge 2 ]] || { echo "--repo requires a value" >&2; exit 2; }
+      REPO_PATH="$2"; shift 2 ;;
+    --name)
+      [[ $# -ge 2 ]] || { echo "--name requires a value" >&2; exit 2; }
+      REPO_NAME="$2"; shift 2 ;;
     --branch)
       [[ $# -ge 2 ]] || { echo "--branch requires a value" >&2; exit 2; }
       BRANCH="$2"; shift 2 ;;
@@ -91,7 +102,28 @@ done
 
 require git
 
-# Recompute clone dir after parsing options (honor --dir)
+# Determine normalized repo URL forms
+if [[ "$REPO_PATH" == http*://* || "$REPO_PATH" == git@*:* ]]; then
+  # Full URL provided
+  if [[ "$REPO_PATH" == git@github.com:* ]]; then
+    USE_SSH=true
+  fi
+  if [[ -z "$REPO_NAME" ]]; then
+    base="${REPO_PATH##*/}"; REPO_NAME="${base%.git}"
+  fi
+  HTTPS_URL="$REPO_PATH"
+  SSH_URL="$REPO_PATH"
+else
+  # Owner/repo form
+  REPO_PATH="${REPO_PATH%/}"
+  HTTPS_URL="https://github.com/${REPO_PATH}.git"
+  SSH_URL="git@github.com:${REPO_PATH}.git"
+  if [[ -z "$REPO_NAME" ]]; then
+    REPO_NAME="${REPO_PATH##*/}"
+  fi
+fi
+
+# Recompute clone dir after parsing options
 CLONE_DIR="${TARGET_PARENT}/${REPO_NAME}"
 
 REMOTE_URL="$HTTPS_URL"

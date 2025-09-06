@@ -52,16 +52,6 @@ services:
       timeout: 5s
       retries: 5
 
-  node:
-    image: node:iron-alpine
-    container_name: ${STACK_NAME:-laravel}-node
-    working_dir: /var/www/html
-    user: "1000:1000"
-    volumes:
-      - ./site/${APP_DIR:-tamasuma-backend}:/var/www/html
-    command: tail -f /dev/null
-    restart: unless-stopped
-
 volumes:
   caddy_data:
   caddy_config:

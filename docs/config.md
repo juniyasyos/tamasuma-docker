@@ -45,3 +45,8 @@ Contoh lengkap: lihat `.env.docker.example`.
   - `STACK_ENV_FILE=.stack.projA.env ./run.sh`
 - Namespacing Compose project (network/volume) secara eksplisit:
   - `COMPOSE_PROJECT_NAME=projA ./run.sh`
+
+## Compose Pecahan (Optional)
+
+Layanan tambahan tersedia sebagai file di `compose/` dan dapat digabungkan dengan base `docker-compose.yml`.
+Contoh: `docker compose -f docker-compose.yml -f compose/redis.yml up -d`.

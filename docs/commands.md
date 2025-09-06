@@ -28,7 +28,15 @@ docker compose --env-file .stack.env exec -T app php artisan migrate --force
 
 ## Node/NPM (opsional)
 
-`run.sh` akan menjalankan `npm ci && npm run build` via service `node` bila `NODE_BUILD=true` (default). Nonaktifkan dengan:
+`run.sh` akan menjalankan `npm ci && npm run build` via service `node` bila `NODE_BUILD=true` (default) dan service `node` disertakan di Compose.
+
+Sertakan service `node` saat perlu:
+
+```
+docker compose -f docker-compose.yml -f compose/node.yml run --rm node npm run build
+```
+
+Nonaktifkan langkah build via script:
 
 ```
 NODE_BUILD=false ./run.sh

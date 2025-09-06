@@ -14,7 +14,7 @@ Variabel penting di `.stack.env`:
 - `APP_REPO_BRANCH`: branch yang ingin digunakan (contoh: `development`)
 - `APP_DIR`: nama folder target di `./site` (contoh: `tamasuma-backend`)
 - `WEB_HTTP_PORT`: port publik HTTP (default `8080`)
-- `STACK_NAME`: prefix nama container (hindari bentrok antar project)
+ - `STACK_NAME`: prefix nama container (hindari bentrok antar project)
 
 2) Siapkan variabel database untuk container Postgres
 
@@ -45,3 +45,18 @@ http://localhost:${WEB_HTTP_PORT}
 - Rebuild image: `./run.sh --rebuild`
 - Fresh restart (hapus data DB): `./run.sh --fresh`
 
+---
+# Layanan Opsional (Compose Pecahan)
+
+Stack base bersifat minimal. Layanan tambahan tersedia di folder `compose/` dan dapat digabung sesuai kebutuhan.
+
+Contoh umum:
+- Redis: `docker compose -f docker-compose.yml -f compose/redis.yml up -d`
+- Mailpit: `docker compose -f docker-compose.yml -f compose/mailpit.yml up -d`
+- pgAdmin: `docker compose -f docker-compose.yml -f compose/pgadmin.yml up -d`
+- MariaDB/MySQL sebagai pengganti Postgres: `docker compose -f docker-compose.yml -f compose/mysql.yml up -d`
+- Nginx sebagai pengganti Caddy: `docker compose -f docker-compose.yml -f compose/nginx.yml up -d`
+- Node container (dev): `docker compose -f docker-compose.yml -f compose/node.yml run --rm node npm run build`
+
+Catatan:
+- `run.sh` akan tetap berfungsi dengan base; bagian Node akan dilewati jika service `node` tidak disertakan.

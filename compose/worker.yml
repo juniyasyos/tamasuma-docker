@@ -1,0 +1,23 @@
+services:
+  worker:
+    build:
+      context: ./site/${APP_DIR:-tamasuma-backend}
+      dockerfile: ../../docker/php/Dockerfile
+    container_name: ${STACK_NAME:-laravel}-worker
+    working_dir: /var/www/html
+    user: root
+    volumes:
+      - ./site/${APP_DIR:-tamasuma-backend}:/var/www/html
+      - vendor_data:/var/www/html/vendor
+    env_file:
+      - .env.docker
+    depends_on:
+      - db
+      - app
+    command: >
+      sh -lc "php artisan queue:work redis --sleep=3 --tries=3 & php artisan schedule:work"
+    restart: unless-stopped
+
+volumes:
+  vendor_data:
+

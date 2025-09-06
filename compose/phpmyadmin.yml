@@ -1,0 +1,14 @@
+services:
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: ${STACK_NAME:-laravel}-phpmyadmin
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_ARBITRARY: 1
+    ports:
+      - "${PMA_PORT:-8081}:80"
+    depends_on:
+      - db
+    restart: unless-stopped
+

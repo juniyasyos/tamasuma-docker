@@ -210,7 +210,8 @@ compose exec -T "$SERVICE_APP" /bin/sh -lc 'set -e; \
 compose exec -T "$SERVICE_APP" php artisan key:generate --force || true
 compose exec -T "$SERVICE_APP" php -r 'if(!preg_match("/^APP_KEY=.+$/m", file_get_contents(".env"))){$k="base64:".base64_encode(random_bytes(32)); $e=file_get_contents(".env"); if(preg_match("/^APP_KEY=.*$/m",$e)){$e=preg_replace("/^APP_KEY=.*$/m","APP_KEY=".$k,$e);}else{$e.="\nAPP_KEY=".$k."\n";} file_put_contents(".env",$e);}'
 
-compose exec -T "$SERVICE_APP" php artisan migrate --force || true
+# compose exec -T "$SERVICE_APP" php artisan migrate --force || true
+compose exec -T "$SERVICE_APP"  git config --global --add safe.directory /var/www/html || true
 compose exec -T "$SERVICE_APP" php artisan storage:link || true
 compose exec -T "$SERVICE_APP" composer run setup || true
 

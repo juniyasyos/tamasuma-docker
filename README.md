@@ -4,7 +4,10 @@ Template Docker Compose untuk menjalankan aplikasi Laravel (starterkit Kaido) de
 
 ## Struktur Proyek
 - `docker/` — assets container (php, nginx, entrypoint)
-- `compose/` — pecahan optional Docker Compose (redis, mailpit, pgadmin, mysql, nginx, node)
+- `compose/` — komposisi modular:
+  - `compose/base.yml` — base stack (Caddy + PHP-FPM + Postgres)
+  - `compose/services/` — parts per layanan (nginx, mariadb, redis, mailpit, admin UI, worker, node)
+  - `compose/all.profiles.yml` — agregator dengan `profiles` opsional (redis, mail, admin, worker, node)
 - `site/` — sumber kode backend hasil clone (sesuai `.stack.env`)
 - `scripts/` — utilitas (sinkronisasi repo, dsb.)
 - `docs/` — dokumentasi
@@ -68,23 +71,30 @@ Layanan opsional tersedia sebagai pecahan di folder `compose/` (lihat di bawah).
 ## Compose Pecahan (Optional Services)
 Tambahkan layanan opsional dengan menggabungkan file di `compose/`.
 
-Contoh:
-- Tambah Redis: `docker compose -f docker-compose.yml -f compose/redis.yml up -d`
-- Tambah Mailpit: `docker compose -f docker-compose.yml -f compose/mailpit.yml up -d`
-- Tambah pgAdmin: `docker compose -f docker-compose.yml -f compose/pgadmin.yml up -d`
-- Ganti DB ke MariaDB/MySQL: `docker compose -f docker-compose.yml -f compose/mysql.yml up -d`
-- Ganti webserver ke Nginx: `docker compose -f docker-compose.yml -f compose/nginx.yml up -d`
-- Tambah container Node (untuk dev): `docker compose -f docker-compose.yml -f compose/node.yml run --rm node npm run build`
+Contoh overlay file-per-part (disarankan):
+- Base + Redis + Mailpit:
+  - `docker compose -f compose/base.yml -f compose/services/cache.redis.yml -f compose/services/mail.mailpit.yml up -d`
+- Nginx + MariaDB + phpMyAdmin + Worker:
+  - `docker compose -f compose/base.yml -f compose/services/web.nginx.yml -f compose/services/db.mariadb.yml -f compose/services/admin.phpmyadmin.yml -f compose/services/worker.queue.yml up -d`
+- Tambah Node (sekali jalan build):
+  - `docker compose -f compose/base.yml -f compose/services/node.dev.yml run --rm node npm run build`
+
+Mode agregator dengan profiles (opsional):
+- Aktifkan dengan menambahkan file `compose/all.profiles.yml` dan memilih profile:
+  - `docker compose -f compose/base.yml -f compose/all.profiles.yml --profile redis --profile mail up -d`
+- Atau gunakan env `COMPOSE_PROFILES`:
+  - `COMPOSE_PROFILES=redis,mail docker compose -f compose/base.yml -f compose/all.profiles.yml up -d`
 
 Catatan:
-- File `docker-compose.yml` adalah base minimal (web+app+db Postgres).
-- File di `compose/` bersifat opsional dan dapat digabung sesuai kebutuhan.
-- Script `run.sh` tetap bekerja dengan base, dan akan otomatis melewati langkah Node bila service `node` tidak diikutkan.
+- Base default: `compose/base.yml`. File `docker-compose.yml` tetap ada sebagai kompatibilitas.
+- File di `compose/services/` bersifat opsional dan dapat digabung sesuai kebutuhan.
+- Script `run.sh` mendukung selector ergonomis via ENV: `WEB_IMPL=caddy|nginx`, `DB_IMPL=postgres|mariadb`, `WITH_PARTS=redis,mailpit,pgadmin,phpmyadmin,worker,node`.
+- Untuk profiles agregator lewat `run.sh`, sertakan file agregator via `COMPOSE_FILES=compose/all.profiles.yml` dan pilih profile dengan `COMPOSE_PROFILES` saat memanggil `docker compose` langsung.
 
 ## Catatan
 - Volume kode: `./site/${APP_DIR}:/var/www/html`
 - Build context `app`: `./site/${APP_DIR}` memakai `docker/php/Dockerfile`
-- Caddy melayani dokumen root `public/` dan meneruskan PHP ke `app:9000`. Alternatif Nginx tersedia via `compose/nginx.yml`.
+- Caddy melayani dokumen root `public/` dan meneruskan PHP ke `app:9000`. Alternatif Nginx tersedia via `compose/services/web.nginx.yml`.
 
 ## Troubleshooting Cepat
 - Port 8080 dipakai: ubah mapping port di `docker-compose.yml`

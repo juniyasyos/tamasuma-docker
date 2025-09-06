@@ -1,0 +1,83 @@
+services:
+  redis:
+    image: redis:alpine
+    container_name: ${STACK_NAME:-laravel}-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    profiles: [redis]
+    restart: unless-stopped
+
+  mail:
+    image: axllent/mailpit:latest
+    container_name: ${STACK_NAME:-laravel}-mail
+    ports:
+      - "${MAIL_WEB_PORT:-8025}:8025"
+      - "${MAIL_SMTP_PORT:-1025}:1025"
+    profiles: [mail]
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: ${STACK_NAME:-laravel}-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-password}
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      - db
+    profiles: [pgadmin]
+    restart: unless-stopped
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: ${STACK_NAME:-laravel}-phpmyadmin
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_ARBITRARY: 1
+    ports:
+      - "${PMA_PORT:-8081}:80"
+    depends_on:
+      - db
+    profiles: [phpmyadmin]
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./site/${APP_DIR:-tamasuma-backend}
+      dockerfile: ../../docker/php/Dockerfile
+    container_name: ${STACK_NAME:-laravel}-worker
+    working_dir: /var/www/html
+    user: root
+    volumes:
+      - ./site/${APP_DIR:-tamasuma-backend}:/var/www/html
+      - vendor_data:/var/www/html/vendor
+    env_file:
+      - .env.docker
+    depends_on:
+      - db
+      - app
+    command: >
+      sh -lc "php artisan queue:work redis --sleep=3 --tries=3 & php artisan schedule:work"
+    profiles: [worker]
+    restart: unless-stopped
+
+  node:
+    image: node:iron-alpine
+    container_name: ${STACK_NAME:-laravel}-node
+    working_dir: /var/www/html
+    user: "1000:1000"
+    volumes:
+      - ./site/${APP_DIR:-tamasuma-backend}:/var/www/html
+    command: tail -f /dev/null
+    profiles: [node]
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  vendor_data:
+

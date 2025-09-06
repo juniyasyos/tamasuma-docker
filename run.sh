@@ -275,14 +275,28 @@ compose exec -T "$SERVICE_APP" sh -lc 'rm -f bootstrap/cache/config.php bootstra
 compose exec -T "$SERVICE_APP" php artisan optimize:clear || true
 
 # Sinkron DB config
+# Sesuaikan koneksi DB berdasarkan DB_IMPL (postgres|mariadb)
+_db_impl_effective="${DB_IMPL:-postgres}"
+if [[ "${_db_impl_effective}" == "mariadb" ]]; then
+  _db_conn="mysql"; _db_port=3306
+  _db_name="${MYSQL_DATABASE:-${DB_DATABASE:-laravel}}"
+  _db_user="${MYSQL_USER:-${DB_USERNAME:-laravel}}"
+  _db_pass="${MYSQL_PASSWORD:-${DB_PASSWORD:-laravel}}"
+else
+  _db_conn="pgsql"; _db_port=5432
+  _db_name="${POSTGRES_DB:-${DB_DATABASE:-laravel}}"
+  _db_user="${POSTGRES_USER:-${DB_USERNAME:-laravel}}"
+  _db_pass="${POSTGRES_PASSWORD:-${DB_PASSWORD:-laravel}}"
+fi
+
 compose exec -T "$SERVICE_APP" /bin/sh -lc 'set -e; \
   set_kv() { k="$1"; v="$2"; if grep -qE "^${k}=.*$" .env; then sed -i "s#^${k}=.*#${k}=${v}#" .env; else echo "${k}=${v}" >> .env; fi; }; \
-  set_kv DB_CONNECTION pgsql; \
+  set_kv DB_CONNECTION '"${_db_conn}"'; \
   set_kv DB_HOST '"$SERVICE_DB"'; \
-  set_kv DB_PORT 5432; \
-  set_kv DB_DATABASE "${DB_DATABASE:-${POSTGRES_DB:-laravel}}"; \
-  set_kv DB_USERNAME "${DB_USERNAME:-${POSTGRES_USER:-laravel}}"; \
-  set_kv DB_PASSWORD "${DB_PASSWORD:-${POSTGRES_PASSWORD:-laravel}}"; \
+  set_kv DB_PORT '"${_db_port}"'; \
+  set_kv DB_DATABASE '"${_db_name}"'; \
+  set_kv DB_USERNAME '"${_db_user}"'; \
+  set_kv DB_PASSWORD '"${_db_pass}"'; \
 '
 
 # APP_KEY + migrasi + storage link

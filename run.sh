@@ -31,6 +31,8 @@ Opsi:
 Variabel ENV penting:
   COMPOSE_BIN, SERVICE_APP, SERVICE_WEB, SERVICE_DB, SERVICE_NODE,
   NODE_BUILD=[true|false], CLEAN_NODE_MODULES=[true|false]
+  COMPOSE_FILES="comma/colon/space separated additional compose files (optional)"
+  STACK_PARTS="alias of COMPOSE_FILES"
 EOF
 }
 
@@ -68,6 +70,37 @@ if [[ -f "$PROJECT_ROOT/$STACK_ENV_FILE" ]]; then
   COMPOSE_ARGS+=("--env-file" "$PROJECT_ROOT/$STACK_ENV_FILE")
 fi
 
+# Rakit daftar compose files: base + optional parts
+# Base default: compose/base.yml bila ada; fallback ke docker-compose.yml
+BASE_COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yml"
+if [[ -f "$PROJECT_ROOT/compose/base.yml" ]]; then
+  BASE_COMPOSE_FILE="$PROJECT_ROOT/compose/base.yml"
+fi
+
+# Dukungan env COMPOSE_FILES atau STACK_PARTS (dipisah dengan koma/kolon/spasi)
+_extras_raw="${COMPOSE_FILES:-${STACK_PARTS:-}}"
+IFS=',' read -r -a _extras_csv <<< "${_extras_raw}"
+# juga pecah dengan spasi/kolon
+_extras=()
+for item in "${_extras_csv[@]}"; do
+  for token in ${item//:/ } ; do
+    [[ -n "$token" ]] && _extras+=("$token")
+  done
+done
+
+COMPOSE_FILE_ARGS=(-f "$BASE_COMPOSE_FILE")
+for f in "${_extras[@]}"; do
+  # path relatif terhadap project root
+  if [[ -f "$PROJECT_ROOT/$f" ]]; then
+    COMPOSE_FILE_ARGS+=( -f "$PROJECT_ROOT/$f" )
+  elif [[ -f "$f" ]]; then
+    COMPOSE_FILE_ARGS+=( -f "$f" )
+  else
+    echo "  - Warning: compose part tidak ditemukan: $f" >&2
+  fi
+done
+echo "  - Compose files: ${COMPOSE_FILE_ARGS[*]}"
+
 # Namespace default untuk network/volume
 if [[ -z "${COMPOSE_PROJECT_NAME:-}" && -n "${STACK_NAME:-}" ]]; then
   export COMPOSE_PROJECT_NAME="$STACK_NAME"
@@ -77,7 +110,7 @@ fi
 # Catatan: sengaja tidak mengutip $COMPOSE_BIN agar "docker compose"
 # terpecah menjadi dua argumen (bash word-splitting) dan tidak dianggap
 # sebagai satu nama perintah.
-compose() { $COMPOSE_BIN "${COMPOSE_ARGS[@]}" "$@"; }
+compose() { $COMPOSE_BIN "${COMPOSE_ARGS[@]}" "${COMPOSE_FILE_ARGS[@]}" "$@"; }
 
 echo "[1/7] Cek dependency…"
 require docker

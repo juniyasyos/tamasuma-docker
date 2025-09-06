@@ -7,7 +7,7 @@ set -euo pipefail
 #   https://github.com/juniyasyos/tamasuma-backend
 #
 # Defaults:
-#   - Clones into "$HOME/site/tamasuma-backend"
+#   - Clones into "$HOME/tamasuma-docker/tamasuma/site/tamasuma-backend" by default
 #   - Uses HTTPS by default; `--ssh` switches to SSH
 #   - Optional `--branch <name>` and `--shallow`
 #   - Safe update: refuses to modify dirty working tree unless `--hard-update`
@@ -24,7 +24,6 @@ SSH_URL="git@github.com:${REPO_PATH}.git"
 
 TARGET_PARENT="${HOME}/tamasuma-docker/tamasuma/site"
 REPO_NAME="tamasuma-backend"
-CLONE_DIR="${TARGET_PARENT}/${REPO_NAME}"
 BRANCH="development"
 SHALLOW=false
 USE_SSH=false
@@ -35,7 +34,7 @@ usage() {
 Clone or update ${REPO_PATH} into a local directory.
 
 Options:
-  --dir <path>        Parent directory (default: ${HOME}/site)
+  --dir <path>        Parent directory (default: ${HOME}/tamasuma-docker/tamasuma/site)
   --branch <name>     Checkout and track a specific branch
   --shallow           Use shallow clone (depth=1)
   --ssh               Use SSH remote instead of HTTPS
@@ -91,6 +90,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 require git
+
+# Recompute clone dir after parsing options (honor --dir)
+CLONE_DIR="${TARGET_PARENT}/${REPO_NAME}"
 
 REMOTE_URL="$HTTPS_URL"
 if [[ "$USE_SSH" == true ]]; then

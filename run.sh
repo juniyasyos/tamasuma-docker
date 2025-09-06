@@ -11,6 +11,7 @@ SERVICE_DB="${SERVICE_DB:-db}"         # contoh: db
 SERVICE_NODE="${SERVICE_NODE:-node}"   # contoh: node (nama service, bukan container)
 NODE_BUILD="${NODE_BUILD:-true}"       # set false untuk skip npm build
 CLEAN_NODE_MODULES="${CLEAN_NODE_MODULES:-false}" # true untuk rm -rf node_modules setelah build
+SKIP_CLONE="${SKIP_CLONE:-false}"      # true untuk melewati proses clone/update backend
 
 # File env untuk konfigurasi stack/template (APP_DIR, APP_REPO, dll)
 STACK_ENV_FILE="${STACK_ENV_FILE:-.stack.env}"
@@ -67,6 +68,14 @@ if [[ -f "$PROJECT_ROOT/$STACK_ENV_FILE" ]]; then
   COMPOSE_ARGS+=("--env-file" "$PROJECT_ROOT/$STACK_ENV_FILE")
 fi
 
+# Namespace default untuk network/volume
+if [[ -z "${COMPOSE_PROJECT_NAME:-}" && -n "${STACK_NAME:-}" ]]; then
+  export COMPOSE_PROJECT_NAME="$STACK_NAME"
+fi
+
+# Wrapper docker compose dengan --env-file
+compose() { "$COMPOSE_BIN" "${COMPOSE_ARGS[@]}" "$@"; }
+
 echo "[1/7] Cek dependency…"
 require docker
 require git
@@ -74,12 +83,16 @@ if ! docker compose version >/dev/null 2>&1; then
   echo "Error: 'docker compose' tidak tersedia." >&2; exit 1
 fi
 
-echo "[2/7] Clone/update backend ke ./site/$APP_DIR…"
-mkdir -p "$PROJECT_ROOT/site"
-chmod +x "$PROJECT_ROOT/scripts/clone_tamasuma_backend.sh"
-CLONE_ARGS=(--dir "$PROJECT_ROOT/site" --branch "$APP_REPO_BRANCH" --repo "$APP_REPO" --name "$APP_DIR")
-if [[ "$APP_REPO_SSH" == "true" ]]; then CLONE_ARGS+=(--ssh); fi
-"$PROJECT_ROOT/scripts/clone_tamasuma_backend.sh" "${CLONE_ARGS[@]}"
+if [[ "$SKIP_CLONE" == "true" ]]; then
+  echo "[2/7] Lewati clone/update backend (SKIP_CLONE=true)"
+else
+  echo "[2/7] Clone/update backend ke ./site/$APP_DIR…"
+  mkdir -p "$PROJECT_ROOT/site"
+  chmod +x "$PROJECT_ROOT/scripts/sync_repo.sh"
+  CLONE_ARGS=(--dir "$PROJECT_ROOT/site" --branch "$APP_REPO_BRANCH" --repo "$APP_REPO" --name "$APP_DIR")
+  if [[ "$APP_REPO_SSH" == "true" ]]; then CLONE_ARGS+=(--ssh); fi
+  "$PROJECT_ROOT/scripts/sync_repo.sh" "${CLONE_ARGS[@]}"
+fi
 
 echo "[3/7] Siapkan .env.docker…"
 if [[ ! -f "$PROJECT_ROOT/.env.docker" ]]; then
@@ -109,11 +122,12 @@ fi
 
 if [[ "$FRESH" == true ]]; then
   echo "[4/7] Fresh start: docker compose down -v…"
-  $COMPOSE_BIN "${COMPOSE_ARGS[@]}" down -v || true
+  compose down -v || true
 fi
 
 echo "[4.5/7] Sinkronkan entrypoint ke build context (jika ada)…"
 if [[ -f "$PROJECT_ROOT/docker/entrypoint.sh" ]]; then
+  mkdir -p "$PROJECT_ROOT/site/$APP_DIR"
   cp "$PROJECT_ROOT/docker/entrypoint.sh" "$PROJECT_ROOT/site/$APP_DIR/entrypoint.sh"
 else
   echo "Warning: docker/entrypoint.sh tidak ditemukan; lewati."
@@ -121,37 +135,54 @@ fi
 
 echo "[5/7] Build & up…"
 if [[ "$REBUILD" == true ]]; then
-  $COMPOSE_BIN "${COMPOSE_ARGS[@]}" build --progress=plain
+  compose build --progress=plain
 fi
-$COMPOSE_BIN "${COMPOSE_ARGS[@]}" up -d
+compose up -d
+
+# Tunggu database healthy (jika healthcheck tersedia)
+echo "[5b/7] Menunggu database healthy…"
+db_cid=$(compose ps -q "$SERVICE_DB" || true)
+if [[ -n "$db_cid" ]]; then
+  tries=0
+  while true; do
+    status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$db_cid" 2>/dev/null || echo "none")
+    if [[ "$status" == "healthy" || "$status" == "none" ]]; then
+      break
+    fi
+    tries=$((tries+1)); [[ $tries -gt 60 ]] && { echo "  - Timeout menunggu DB healthy"; break; }
+    sleep 2
+  done
+else
+  echo "  - Service DB tidak ditemukan di compose; lewati"
+fi
 
 echo "[6/7] Inisialisasi Laravel…"
 # Tunggu service APP siap
 echo "  - Menunggu service '$SERVICE_APP' siap…"
 tries=0
-until $COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" php -v >/dev/null 2>&1; do
+until compose exec -T "$SERVICE_APP" php -v >/dev/null 2>&1; do
   tries=$((tries+1)); [[ $tries -gt 30 ]] && { echo "Timeout menunggu '$SERVICE_APP'"; exit 1; }
   sleep 2
 done
 
 # Pastikan vendor ada (kepemilikan akan ditangani entrypoint saat user=root)
-$COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" sh -lc 'mkdir -p vendor' || true
+compose exec -T "$SERVICE_APP" sh -lc 'mkdir -p vendor' || true
 
 # Pastikan vendor terpasang
-if ! $COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" test -f vendor/autoload.php; then
+if ! compose exec -T "$SERVICE_APP" test -f vendor/autoload.php; then
   echo "  - composer install…"
-  $COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" /bin/sh -lc 'export COMPOSER_CACHE_DIR=/tmp/composer-cache COMPOSER_HOME=/tmp/composer-home COMPOSER_TMP_DIR=/tmp; composer install --prefer-dist --no-interaction --no-progress' || true
+  compose exec -T "$SERVICE_APP" /bin/sh -lc 'export COMPOSER_CACHE_DIR=/tmp/composer-cache COMPOSER_HOME=/tmp/composer-home COMPOSER_TMP_DIR=/tmp; composer install --prefer-dist --no-interaction --no-progress' || true
 fi
 
 # Pastikan .env ada
-$COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" php -r 'file_exists(".env") || copy(".env.example", ".env");' || true
+compose exec -T "$SERVICE_APP" php -r 'file_exists(".env") || copy(".env.example", ".env");' || true
 
 # Bersih cache config (hindari MissingAppKey akibat cache lama)
-$COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" sh -lc 'rm -f bootstrap/cache/config.php bootstrap/cache/services.php || true'
-$COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" php artisan optimize:clear || true
+compose exec -T "$SERVICE_APP" sh -lc 'rm -f bootstrap/cache/config.php bootstrap/cache/services.php || true'
+compose exec -T "$SERVICE_APP" php artisan optimize:clear || true
 
 # Sinkron DB config
-$COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" /bin/sh -lc 'set -e; \
+compose exec -T "$SERVICE_APP" /bin/sh -lc 'set -e; \
   set_kv() { k="$1"; v="$2"; if grep -qE "^${k}=.*$" .env; then sed -i "s#^${k}=.*#${k}=${v}#" .env; else echo "${k}=${v}" >> .env; fi; }; \
   set_kv DB_CONNECTION pgsql; \
   set_kv DB_HOST '"$SERVICE_DB"'; \
@@ -162,22 +193,26 @@ $COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" /bin/sh -lc 'set -e; \
 '
 
 # APP_KEY + migrasi + storage link
-$COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" php artisan key:generate --force || true
-$COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" php -r 'if(!preg_match("/^APP_KEY=.+$/m", file_get_contents(".env"))){$k="base64:".base64_encode(random_bytes(32)); $e=file_get_contents(".env"); if(preg_match("/^APP_KEY=.*$/m",$e)){$e=preg_replace("/^APP_KEY=.*$/m","APP_KEY=".$k,$e);}else{$e.="\nAPP_KEY=".$k."\n";} file_put_contents(".env",$e);}'
+compose exec -T "$SERVICE_APP" php artisan key:generate --force || true
+compose exec -T "$SERVICE_APP" php -r 'if(!preg_match("/^APP_KEY=.+$/m", file_get_contents(".env"))){$k="base64:".base64_encode(random_bytes(32)); $e=file_get_contents(".env"); if(preg_match("/^APP_KEY=.*$/m",$e)){$e=preg_replace("/^APP_KEY=.*$/m","APP_KEY=".$k,$e);}else{$e.="\nAPP_KEY=".$k."\n";} file_put_contents(".env",$e);}'
 
-$COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" php artisan migrate --force || true
-$COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" php artisan storage:link || true
-$COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" composer run setup || true
+compose exec -T "$SERVICE_APP" php artisan migrate --force || true
+compose exec -T "$SERVICE_APP" php artisan storage:link || true
+compose exec -T "$SERVICE_APP" composer run setup || true
 
 # ---- Bagian Node/npm (sekali jalan) ----
 if [[ "$NODE_BUILD" == "true" ]]; then
   echo "[6b/7] Build frontend (npm)…"
   # Gunakan `run --rm` agar tidak butuh service node selalu hidup.
-  if $COMPOSE_BIN config --services | grep -qx "$SERVICE_NODE"; then
-    $COMPOSE_BIN "${COMPOSE_ARGS[@]}" run --rm "$SERVICE_NODE" npm ci || $COMPOSE_BIN "${COMPOSE_ARGS[@]}" run --rm "$SERVICE_NODE" npm install
-    $COMPOSE_BIN "${COMPOSE_ARGS[@]}" run --rm "$SERVICE_NODE" npm run build
-    if [[ "$CLEAN_NODE_MODULES" == "true" ]]; then
-      $COMPOSE_BIN "${COMPOSE_ARGS[@]}" run --rm "$SERVICE_NODE" /bin/sh -lc 'rm -rf node_modules'
+  if compose config --services | grep -qx "$SERVICE_NODE"; then
+    if [[ -f "$PROJECT_ROOT/site/$APP_DIR/package.json" ]]; then
+      compose run --rm "$SERVICE_NODE" npm ci --no-fund --no-audit || compose run --rm "$SERVICE_NODE" npm install --no-fund --no-audit
+      compose run --rm "$SERVICE_NODE" npm run build
+      if [[ "$CLEAN_NODE_MODULES" == "true" ]]; then
+        compose run --rm "$SERVICE_NODE" /bin/sh -lc 'rm -rf node_modules'
+      fi
+    else
+      echo "  - package.json tidak ditemukan; lewati build frontend."
     fi
   else
     echo "  - Warning: service '$SERVICE_NODE' tidak didefinisikan di docker-compose; lewati build frontend."
@@ -187,8 +222,8 @@ else
 fi
 
 # Cache config untuk production
-$COMPOSE_BIN "${COMPOSE_ARGS[@]}" exec -T "$SERVICE_APP" sh -lc 'if [ "${APP_ENV:-production}" = "production" ]; then php artisan config:cache || true; fi'
+compose exec -T "$SERVICE_APP" sh -lc 'if [ "${APP_ENV:-production}" = "production" ]; then php artisan config:cache || true; fi'
 
 echo
-echo "[7/7] Selesai! Aplikasi siap di: http://localhost:8080"
+echo "[7/7] Selesai! Aplikasi siap di: http://localhost:${WEB_HTTP_PORT:-8080}"
 echo "Kontainer: $SERVICE_WEB (web), $SERVICE_APP (php-fpm), $SERVICE_DB (db)$( [[ "$NODE_BUILD" == "true" ]] && echo ", $SERVICE_NODE (npm run)")"

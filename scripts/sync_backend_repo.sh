@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export GIT_TERMINAL_PROMPT=0
 
-# clone_tamasuma_backend.sh (generic clone helper)
+# sync_repo.sh (generic clone/sync helper)
 #
 # Idempotent, safe clone/update script. Defaults are tuned for the
 # Tamasuma Kaido starterkit but can be overridden to handle any repo.
@@ -15,10 +16,10 @@ set -euo pipefail
 #   - Safe update: refuses to modify dirty working tree unless `--hard-update`
 #
 # Usage examples:
-#   scripts/clone_tamasuma_backend.sh
-#   scripts/clone_tamasuma_backend.sh --dir /var/www/site --repo org/project --name app-backend
-#   scripts/clone_tamasuma_backend.sh --ssh --branch main --shallow
-#   scripts/clone_tamasuma_backend.sh --hard-update
+#   scripts/sync_repo.sh
+#   scripts/sync_repo.sh --dir /var/www/site --repo org/project --name app-backend
+#   scripts/sync_repo.sh --ssh --branch main --shallow
+#   scripts/sync_repo.sh --hard-update
 
 REPO_PATH_DEFAULT="juniyasyos/tamasuma-backend"
 REPO_PATH="${APP_REPO:-${APP_REPO_URL:-$REPO_PATH_DEFAULT}}"
@@ -174,7 +175,11 @@ if [[ -n "$(git status --porcelain)" ]]; then
   fi
 fi
 
-git fetch --prune origin
+if [[ "$SHALLOW" == true ]]; then
+  git fetch --prune --depth=1 origin || true
+else
+  git fetch --prune origin || true
+fi
 
 if [[ -n "$BRANCH" ]]; then
   if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
@@ -185,6 +190,14 @@ if [[ -n "$BRANCH" ]]; then
       git checkout -B "$BRANCH" "origin/$BRANCH"
     else
       echo "Branch '$BRANCH' not found on origin; staying on current branch." >&2
+    fi
+  fi
+  # Ensure tracking to origin/BRANCH when available
+  if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+    git branch --set-upstream-to="origin/$BRANCH" "$BRANCH" >/dev/null 2>&1 || true
+    if [[ "$HARD_UPDATE" == true ]]; then
+      echo "Hard resetting to origin/$BRANCH"
+      git reset --hard "origin/$BRANCH" || true
     fi
   fi
 fi

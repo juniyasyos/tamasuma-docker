@@ -17,6 +17,7 @@ Contoh lengkap ada di `.stack.env.example`. Variabel yang didukung:
 - `APP_DIR`: Nama folder target di `./site` tempat repo backend disimpan.
 - (opsional) `SERVICE_APP`, `SERVICE_WEB`, `SERVICE_DB`, `SERVICE_NODE`: nama service Compose (default: `app`, `web`, `db`, `node`).
 - (opsional) `DB_PORT`: Port host untuk Postgres (container selalu 5432). Default `5432`.
+  (Catatan: jika `COMPOSE_PROJECT_NAME` tidak diset, `run.sh` akan menset default ke `STACK_NAME` untuk namespacing volume/network.)
 
 File ini akan di-load otomatis oleh `run.sh` dan juga diberikan ke Compose via `--env-file` supaya substitusi variabel di `docker-compose.yml` berjalan.
 
@@ -44,4 +45,3 @@ Contoh lengkap: lihat `.env.docker.example`.
   - `STACK_ENV_FILE=.stack.projA.env ./run.sh`
 - Namespacing Compose project (network/volume) secara eksplisit:
   - `COMPOSE_PROJECT_NAME=projA ./run.sh`
-

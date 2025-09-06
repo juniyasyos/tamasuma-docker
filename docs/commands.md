@@ -9,6 +9,7 @@
   - Env berguna:
     - `STACK_ENV_FILE=.stack.env` — pilih file env stack
     - `COMPOSE_PROJECT_NAME=xxx` — namespace network/volume Compose
+    - `SKIP_CLONE=true` — lewati proses clone/update backend (pakai source lokal)
 
 ## Docker Compose
 
@@ -32,4 +33,3 @@ docker compose --env-file .stack.env exec -T app php artisan migrate --force
 ```
 NODE_BUILD=false ./run.sh
 ```
-
